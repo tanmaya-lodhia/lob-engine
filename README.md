@@ -44,6 +44,13 @@ layout matters and a per-event interpreted loop does not keep up.
   by size. On the level-50 AAPL hour it recovers the textbook stylized facts
   (C(1)=0.58 decaying to ~0; concave, saturating R(ℓ)); see
   [notes/design.md](notes/design.md). Writes CSVs for plotting.
+- **Square-root law of market impact**
+  ([square_root_law.cpp](apps/square_root_law.cpp)): reproduces the square-root
+  impact law on the reconstructed book via the Maitrier–Loeper–Bouchaud
+  metaorder construction ([arXiv:2503.18199](https://arxiv.org/abs/2503.18199))
+  — random trader mapping over the public tape, then impact vs metaorder volume.
+  On the level-50 AAPL hour it recovers strongly concave impact: over the
+  scaling regime `I/σ_D ∝ (Q/V_D)^0.62`, R²=0.97, consistent with the √ law.
 - **Flat-array engine** ([flat_book.hpp](include/lob/flat_book.hpp)): a
   cache-friendly book that replaces the `std::map` price levels with per-side
   flat arrays indexed by tick offset and the map nodes with a pooled free list.
@@ -69,13 +76,14 @@ planned, separately tested module.
 ## Structure
 
 ```
-include/lob/   public headers: types, order book
-src/           order-book implementation
-apps/          replay driver (LOBSTER message file -> stats)
-tests/         known-answer unit tests (doctest)
+include/lob/   public headers: types, order book, flat book, tape, microstructure
+src/           order-book, flat-book and tape implementations
+apps/          replay, oracle, microstructure, square_root_law drivers
+bench/         engine microbenchmark (std::map vs flat array)
+tests/         doctest unit tests + differential fuzz + oracle fixture
 third_party/   vendored doctest single header
 scripts/       data fetch helper
-notes/         design notes and roadmap
+notes/         design notes, results and roadmap
 data/lobster/  sample data (gitignored; not committed)
 ```
 
@@ -113,6 +121,12 @@ build/microstructure \
   data/lobster/AAPL_2012-06-21_34200000_37800000_message_50.csv \
   data/lobster/AAPL_2012-06-21_34200000_37800000_orderbook_50.csv \
   50 100 out
+
+# square-root law: 20 synthetic traders, 500 random mappings
+build/square_root_law \
+  data/lobster/AAPL_2012-06-21_34200000_37800000_message_50.csv \
+  data/lobster/AAPL_2012-06-21_34200000_37800000_orderbook_50.csv \
+  50 20 500 out
 ```
 
 ## Author

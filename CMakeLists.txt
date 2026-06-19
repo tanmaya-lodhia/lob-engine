@@ -21,7 +21,7 @@ if(LOB_SANITIZE)
 endif()
 
 # --- core library ------------------------------------------------------------
-add_library(lob STATIC src/order_book.cpp src/flat_book.cpp)
+add_library(lob STATIC src/order_book.cpp src/flat_book.cpp src/lobster_tape.cpp)
 target_include_directories(lob PUBLIC include)
 
 # --- replay driver -----------------------------------------------------------
@@ -39,6 +39,10 @@ target_link_libraries(bench PRIVATE lob)
 # --- microstructure analytics ------------------------------------------------
 add_executable(microstructure apps/microstructure.cpp)
 target_link_libraries(microstructure PRIVATE lob)
+
+# --- square-root law (Maitrier-Loeper-Bouchaud metaorders) -------------------
+add_executable(square_root_law apps/square_root_law.cpp)
+target_link_libraries(square_root_law PRIVATE lob)
 
 # --- tests -------------------------------------------------------------------
 # doctest is vendored as a single header (third_party/) so the build is fully

@@ -78,4 +78,45 @@ inline MeanStd mean_std(const std::vector<double>& x) {
     return {m, std::sqrt(v / static_cast<double>(x.size()))};
 }
 
+// Ordinary least squares fit of a power law y = A * x^b, done as a linear
+// regression of ln y on ln x over the points with x > 0 and y > 0. Used to test
+// the square-root law: b should come out near 0.5.
+struct PowerFit {
+    double      exponent  = 0.0;  // b
+    double      prefactor = 0.0;  // A
+    double      r2        = 0.0;
+    std::size_t n         = 0;    // points actually used
+};
+inline PowerFit fit_power_law(const std::vector<double>& x, const std::vector<double>& y) {
+    PowerFit            fit;
+    std::vector<double> lx, ly;
+    const std::size_t   m = std::min(x.size(), y.size());
+    for (std::size_t i = 0; i < m; ++i)
+        if (x[i] > 0.0 && y[i] > 0.0) {
+            lx.push_back(std::log(x[i]));
+            ly.push_back(std::log(y[i]));
+        }
+    fit.n = lx.size();
+    if (fit.n < 2)
+        return fit;
+    double sx = 0, sy = 0;
+    for (std::size_t i = 0; i < fit.n; ++i) {
+        sx += lx[i];
+        sy += ly[i];
+    }
+    const double mx = sx / static_cast<double>(fit.n), my = sy / static_cast<double>(fit.n);
+    double       sxx = 0, sxy = 0, syy = 0;
+    for (std::size_t i = 0; i < fit.n; ++i) {
+        sxx += (lx[i] - mx) * (lx[i] - mx);
+        sxy += (lx[i] - mx) * (ly[i] - my);
+        syy += (ly[i] - my) * (ly[i] - my);
+    }
+    if (sxx <= 0.0)
+        return fit;
+    fit.exponent  = sxy / sxx;
+    fit.prefactor = std::exp(my - fit.exponent * mx);
+    fit.r2        = syy > 0.0 ? (sxy * sxy) / (sxx * syy) : 0.0;
+    return fit;
+}
+
 }  // namespace lob::micro

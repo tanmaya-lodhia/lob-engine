@@ -48,3 +48,25 @@ TEST_CASE("mean_std on a known series") {
     CHECK(m.mean == Approx(5.0));
     CHECK(m.std == Approx(2.0));  // population standard deviation
 }
+
+TEST_CASE("power-law fit recovers a known exponent and prefactor") {
+    // y = 3 * x^0.5 exactly -> exponent 0.5, prefactor 3, perfect fit.
+    std::vector<double> x = {1, 2, 4, 8, 16, 32};
+    std::vector<double> y;
+    for (double v : x)
+        y.push_back(3.0 * std::sqrt(v));
+    auto f = fit_power_law(x, y);
+    CHECK(f.n == 6);
+    CHECK(f.exponent == Approx(0.5));
+    CHECK(f.prefactor == Approx(3.0));
+    CHECK(f.r2 == Approx(1.0));
+}
+
+TEST_CASE("power-law fit ignores non-positive points") {
+    std::vector<double> x = {-1, 0, 1, 2, 4};
+    std::vector<double> y = {5, 5, 2, 2 * std::sqrt(2.0), 4};  // y=2*sqrt(x) on the valid tail
+    auto                f = fit_power_law(x, y);
+    CHECK(f.n == 3);  // only x=1,2,4 used
+    CHECK(f.exponent == Approx(0.5));
+    CHECK(f.prefactor == Approx(2.0));
+}

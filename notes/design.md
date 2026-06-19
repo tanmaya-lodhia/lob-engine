@@ -155,6 +155,45 @@ for plotting. The time-weighted quoted spread is sensitive to the ~0.1% of
 snapshots that reconstruction gets wrong (a stale wide level over a quiet
 interval is heavily time-weighted); the trade-based effective spread is robust.
 
+## The square-root law (Maitrier-Loeper-Bouchaud)
+
+`apps/square_root_law.cpp` reproduces the square-root law of market impact on a
+reconstructed book, via the construction of Maitrier, Loeper & Bouchaud
+([arXiv:2503.18199](https://arxiv.org/abs/2503.18199)). Real metaorder studies
+need proprietary per-trader data; MLB's insight is that the law does not depend
+on *which* trader sends what, so it can be recovered from the anonymous public
+tape by a random mapping:
+
+1. Reconstruct the trade tape (`lobster_tape`): child orders = same-timestamp
+   same-sign execution bursts, each with its pre- and post-trade mid.
+2. Assign every trade to one of N synthetic traders at random, preserving
+   chronological order (the MLB mapping function).
+3. A metaorder is a maximal same-sign run within one trader's sequence, keeping
+   only runs of more than one child order.
+4. For volume Q: impact I = eps * (ln p_e - ln p_s), p_s the mid before the first
+   child, p_e the mid after the last.
+5. Average over many random mappings, bin by Q / V_D, fit
+   I(Q) / sigma_D = Y * (Q / V_D)^delta.
+
+**Result, AAPL 2012-06-21 level-50 hour** (4,575 child orders, 20 traders, 500
+mappings -> 553k metaorders):
+
+- Impact is **strongly concave**, ruling out linear (Kyle) impact outright.
+- **Small-Q plateau:** below Q/V_D ~ 3e-4 impact flattens at the spread /
+  discreteness floor (the smallest metaorders all cross about one spread). MLB
+  exclude this region; a single fit across all scales is dragged down to an
+  exponent of 0.22 by it.
+- **Scaling regime** (Q/V_D >= 3e-4, high-mass bins): `I/sigma_D = 4.6 *
+  (Q/V_D)^0.62`, **R^2 = 0.97** -- a clean concave power law consistent with the
+  square-root law (delta = 0.5).
+
+The 0.62 vs the asymptotic 0.5 is the honest cost of one hour of data: MLB obtain
+clean four-decade scaling from multi-year datasets, and the exponent here wanders
+~0.4-0.6 with the fit window. What is unambiguous is the concavity and the
+recovery of square-root-like scaling **from a book reconstructed out of a raw
+exchange feed** -- the same measurement an impact study runs, now end to end in
+this engine. `square_root_law.csv` holds the full impact curve for plotting.
+
 ## Roadmap
 
 1. **[done]** Reconstruction core + hand-written known-answer unit tests.
@@ -163,6 +202,6 @@ interval is heavily time-weighted); the trade-based effective spread is robust.
 3. **[done]** Flat-array book ([flat_book.hpp](../include/lob/flat_book.hpp)) +
    object pool; benchmark vs the `std::map` baseline (below).
 4. **[done]** Microstructure measurements off the reconstructed book (below).
-5. Metaorder construction (Maitrier-Loeper-Bouchaud) and the square-root impact
-   law -- the direct bridge to the impact-diffusivity work.
+5. **[done]** Metaorder construction (Maitrier-Loeper-Bouchaud) and the
+   square-root law (below).
 6. Optional: matching-engine mode with price-time priority.
