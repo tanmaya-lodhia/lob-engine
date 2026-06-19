@@ -77,6 +77,29 @@ void OrderBook::cancel(OrderId id) {
     remove_order(&it->second);
 }
 
+void OrderBook::reduce_at(Side side, Price price, Quantity qty) {
+    auto& book = side_map(side);
+    auto  it   = book.find(price);
+    if (it == book.end())
+        return;  // nothing resting here; tolerate (pre-window state we never saw)
+    Level&   lvl       = it->second;
+    Quantity remaining = qty;
+    while (remaining > 0 && lvl.head != nullptr) {
+        Order* o = lvl.head;
+        if (o->qty > remaining) {
+            o->qty        -= remaining;  // partially fills the front order
+            lvl.total_qty -= remaining;
+            remaining = 0;
+        } else {
+            remaining -= o->qty;  // front order fully consumed
+            unlink(lvl, o);       // advances head; fixes totals/count
+            orders_.erase(o->id);
+        }
+    }
+    if (lvl.order_count == 0)
+        book.erase(it);
+}
+
 bool OrderBook::best_bid(Price& out) const {
     if (bids_.empty()) {
         out = kNoPrice;

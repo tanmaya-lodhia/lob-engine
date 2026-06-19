@@ -1,75 +1,73 @@
-"""Fetch the free LOBSTER sample data into data/lobster/.
+"""Fetch LOBSTER sample data into data/lobster/.
 
-LOBSTER (https://lobsterdata.com/info/DataSamples.php) publishes free one-day
-samples for a few tickers at several depth levels. Each sample is a zip
-containing two CSVs:
+LOBSTER (https://lobsterdata.com) publishes free one-day samples for a handful
+of tickers at several depths. The official site is now a single-page app whose
+old direct file URLs no longer resolve, so this script pulls the same files from
+a stable public mirror on the Hugging Face Hub.
 
-    <TICKER>_<DATE>_..._message_<LEVELS>.csv     the event stream
-    <TICKER>_<DATE>_..._orderbook_<LEVELS>.csv    the reference book snapshots
+Each (ticker, levels) sample is a folder containing two CSVs:
 
-The orderbook file is the oracle: row i is the book state immediately after
-event i in the message file, as `ask1, asksize1, bid1, bidsize1, ...` out to
-<LEVELS> levels. The planned oracle test replays the message file and asserts
-the engine's top-N levels match this file row for row.
+    <TICKER>_<DATE>_<START>_<END>_message_<LEVELS>.csv     the event stream
+    <TICKER>_<DATE>_<START>_<END>_orderbook_<LEVELS>.csv    the reference book
+
+The orderbook file is the oracle for `oracle.cpp`: row i is the book state
+immediately after event i, as `ask1, asksize1, bid1, bidsize1, ...` out to
+<LEVELS> levels. Deeper samples (e.g. 50) cover a shorter time window but buffer
+the top of book against the feed's sub-depth data loss.
 
 Usage:
-    python scripts/download_lobster_sample.py            # default: AAPL level 10
-    python scripts/download_lobster_sample.py --list     # show known samples
+    python scripts/download_lobster_sample.py                 # AAPL, 10 levels
+    python scripts/download_lobster_sample.py --levels 50     # AAPL, 50 levels
+    python scripts/download_lobster_sample.py --ticker MSFT
 """
 
 import argparse
-import io
+import json
 import sys
 import urllib.request
-import zipfile
 from pathlib import Path
 
-# Known free sample zips (ticker -> {levels: url}). LOBSTER hosts these on its
-# public sample page; URLs are stable but verify against the page if a fetch
-# 404s, since they revise occasionally.
-SAMPLES = {
-    "AAPL": {
-        1: "https://lobsterdata.com/info/sample/LOBSTER_SampleFile_AAPL_2012-06-21_1.zip",
-        10: "https://lobsterdata.com/info/sample/LOBSTER_SampleFile_AAPL_2012-06-21_10.zip",
-        50: "https://lobsterdata.com/info/sample/LOBSTER_SampleFile_AAPL_2012-06-21_50.zip",
-    },
-    "MSFT": {
-        1: "https://lobsterdata.com/info/sample/LOBSTER_SampleFile_MSFT_2012-06-21_1.zip",
-        10: "https://lobsterdata.com/info/sample/LOBSTER_SampleFile_MSFT_2012-06-21_10.zip",
-    },
-}
-
+REPO = "totalorganfailure/lobster-data"
+API  = f"https://huggingface.co/api/datasets/{REPO}/tree/main"
+RAW  = f"https://huggingface.co/datasets/{REPO}/resolve/main"
+DATE = "2012-06-21"
 DEST = Path(__file__).resolve().parents[1] / "data" / "lobster"
 
 
+def list_folder(folder: str) -> list[str]:
+    with urllib.request.urlopen(f"{API}/{folder}") as resp:  # noqa: S310 (trusted host)
+        entries = json.load(resp)
+    return [e["path"] for e in entries if e.get("type") == "file"]
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--ticker", default="AAPL", choices=sorted(SAMPLES))
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("--ticker", default="AAPL")
     ap.add_argument("--levels", type=int, default=10)
-    ap.add_argument("--list", action="store_true", help="list known samples and exit")
     args = ap.parse_args()
 
-    if args.list:
-        for tk, lv in SAMPLES.items():
-            print(f"{tk}: levels {sorted(lv)}")
-        return 0
-
+    folder = f"LOBSTER_SampleFile_{args.ticker}_{DATE}_{args.levels}"
     try:
-        url = SAMPLES[args.ticker][args.levels]
-    except KeyError:
-        print(f"no known sample for {args.ticker} level {args.levels}; try --list", file=sys.stderr)
+        paths = list_folder(folder)
+    except Exception as exc:  # noqa: BLE001
+        print(f"could not list {folder}: {exc}", file=sys.stderr)
+        print(f"browse available folders at https://huggingface.co/datasets/{REPO}/tree/main",
+              file=sys.stderr)
+        return 2
+
+    wanted = [p for p in paths if p.endswith(".csv") and ("message_" in p or "orderbook_" in p)]
+    if not wanted:
+        print(f"no message/orderbook CSVs found in {folder}", file=sys.stderr)
         return 2
 
     DEST.mkdir(parents=True, exist_ok=True)
-    print(f"downloading {url}")
-    with urllib.request.urlopen(url) as resp:  # noqa: S310 (trusted host)
-        blob = resp.read()
-    with zipfile.ZipFile(io.BytesIO(blob)) as z:
-        z.extractall(DEST)
-        names = z.namelist()
-    print(f"extracted {len(names)} file(s) to {DEST}:")
-    for n in names:
-        print(f"  {n}")
+    for path in wanted:
+        out = DEST / Path(path).name
+        print(f"downloading {Path(path).name}")
+        urllib.request.urlretrieve(f"{RAW}/{path}", out)  # noqa: S310 (trusted host)
+        print(f"  -> {out}  ({out.stat().st_size / 1e6:.1f} MB)")
     return 0
 
 

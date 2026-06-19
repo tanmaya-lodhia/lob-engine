@@ -103,6 +103,50 @@ TEST_CASE("FIFO time priority: front of queue is removed first by execution") {
     CHECK(b.qty_at(Side::Sell, 9905) == 0);
 }
 
+TEST_CASE("reduce_at consumes the FIFO front first across orders") {
+    OrderBook b;
+    b.add_limit(1, Side::Sell, 9905, 100);  // oldest
+    b.add_limit(2, Side::Sell, 9905, 100);
+    b.add_limit(3, Side::Sell, 9905, 100);  // newest
+    CHECK(b.qty_at(Side::Sell, 9905) == 300);
+
+    // Remove 150 by price/size only (no ids): the 100 front order is fully
+    // consumed and 50 is taken from the next.
+    b.reduce_at(Side::Sell, 9905, 150);
+    CHECK(b.qty_at(Side::Sell, 9905) == 150);
+    CHECK_FALSE(b.has_order(1));  // front fully consumed
+    CHECK(b.has_order(2));        // partially filled, still resting
+    CHECK(b.has_order(3));
+}
+
+TEST_CASE("reduce_at over the level total clamps and removes the level") {
+    OrderBook b;
+    b.add_limit(1, Side::Buy, 9900, 80);
+    b.add_limit(2, Side::Buy, 9900, 40);
+    b.reduce_at(Side::Buy, 9900, 999);  // more than resting
+    CHECK(b.qty_at(Side::Buy, 9900) == 0);
+    Price p;
+    CHECK_FALSE(b.best_bid(p));
+    CHECK(b.resting_order_count() == 0);
+}
+
+TEST_CASE("reduce_at on an empty price level is a tolerated no-op") {
+    OrderBook b;
+    b.add_limit(1, Side::Buy, 9900, 100);
+    b.reduce_at(Side::Buy, 9901, 50);  // no level here
+    CHECK(b.qty_at(Side::Buy, 9900) == 100);
+    CHECK(b.resting_order_count() == 1);
+}
+
+TEST_CASE("has_order tracks resting state") {
+    OrderBook b;
+    CHECK_FALSE(b.has_order(1));
+    b.add_limit(1, Side::Buy, 9900, 100);
+    CHECK(b.has_order(1));
+    b.cancel(1);
+    CHECK_FALSE(b.has_order(1));
+}
+
 TEST_CASE("reducing or cancelling an unknown order is tolerated") {
     OrderBook b;
     b.add_limit(1, Side::Buy, 9900, 100);

@@ -28,6 +28,10 @@ target_include_directories(lob PUBLIC include)
 add_executable(replay apps/replay.cpp)
 target_link_libraries(replay PRIVATE lob)
 
+# --- oracle validator --------------------------------------------------------
+add_executable(oracle apps/oracle.cpp)
+target_link_libraries(oracle PRIVATE lob)
+
 # --- tests -------------------------------------------------------------------
 # doctest is vendored as a single header (third_party/) so the build is fully
 # reproducible and needs no network access at configure time.
@@ -38,3 +42,13 @@ enable_testing()
 add_executable(unit_tests tests/test_order_book.cpp)
 target_link_libraries(unit_tests PRIVATE lob doctest)
 add_test(NAME unit_tests COMMAND unit_tests)
+
+# Oracle regression: a self-contained feed (no sub-depth activity) must
+# reconstruct exactly at every snapshot. Exit code is 0 only on a full match.
+add_test(
+  NAME oracle_fixture
+  COMMAND oracle
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/oracle_message.csv
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/oracle_orderbook.csv
+          2
+)

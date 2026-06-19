@@ -47,14 +47,56 @@ against this baseline, so the speedup is a measured result, not an assertion.
 | 6 | cross / auction | ignored |
 | 7 | trading halt | ignored |
 
+## The depth limitation of a level-N feed
+
+LOBSTER sells data at a fixed depth N (10, 50, ...). The message file contains
+only events that touch the top N levels; activity below level N is **not
+reported**. This has a sharp, easily-misread consequence for reconstruction.
+
+Worked example from the level-10 AAPL sample. The seed book has an ask of
+1160 shares at price 587.65 sitting at level 9. Three transient orders then join
+the book at better ask prices, pushing 587.65 down to ~level 12 — below the
+reported depth. While it is invisible, it is removed; that removal is **not in
+the message file** because it happened below level 10. When the three transient
+orders later cancel, the true book reveals a different level-10 price than our
+engine holds: we never learned 587.65 was gone. The error then ratchets upward
+over the day as the price wanders, eventually corrupting even the top of book.
+
+This is not an engine bug — it is information the feed does not contain. Two
+consequences shape the validation:
+
+- **Seed deeper than you validate.** Seeding 50 levels and checking only the top
+  buffers the inside quote against sub-depth loss for far longer than a 10-level
+  seed does (see results below).
+- **Self-contained feeds reconstruct exactly.** When no activity ever crosses
+  the depth boundary (the regression fixture, or a true full-depth feed),
+  reconstruction is bit-exact at every level. That is the strict CI test.
+
+## Oracle validation results
+
+`oracle.cpp` seeds from the first published snapshot, replays the message file,
+and compares the reconstructed top-N to LOBSTER's orderbook file at every event.
+By-id reduce/cancel is used for in-window orders; the `reduce_at` price-level
+fallback handles events on pre-seed liquidity.
+
+- **Regression fixture** (`tests/fixtures/oracle_*.csv`, no sub-depth activity):
+  100% exact at all levels — the `oracle_fixture` ctest.
+- **AAPL 2012-06-21, level-50 sample (~92k events, 09:30–10:30):** seeding 50
+  levels and validating the top of book gives **99.90%** snapshot agreement,
+  exact for the first 54,605 consecutive events. Cumulative agreement is 97.5%
+  out to the full 10 levels. The residual is precisely the sub-depth loss above.
+- **AAPL level-10 full day:** top of book is exact only for the first ~440
+  events before sub-depth loss reaches the inside — the same effect, with far
+  less depth to buffer it. This is why deeper seeding matters.
+
 ## Roadmap
 
 1. **[done]** Reconstruction core + hand-written known-answer unit tests.
-2. LOBSTER loader + **oracle test**: replay a message file and assert the
-   reconstructed top-N levels equal LOBSTER's published orderbook file at every
-   event.
+2. **[done]** LOBSTER loader + oracle test (this section), with `reduce_at` and
+   deep-seed / shallow-validate support.
 3. Flat-array book + object pool; microbenchmark events/sec vs the `std::map`
-   baseline.
+   baseline. (Oracle throughput is currently bounded by CSV parsing, not the
+   book; a dedicated benchmark will isolate the engine.)
 4. Microstructure measurements off the reconstructed book: realized spread,
    depth, queue dynamics, and the square-root impact law on real metaorders
    (ties into the impact-diffusivity work).

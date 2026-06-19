@@ -29,8 +29,17 @@ layout matters and a per-event interpreted loop does not keep up.
 - **Replay driver** ([replay.cpp](apps/replay.cpp)): maps the LOBSTER event
   encoding (new / cancel / delete / execute / hidden) onto the engine and emits
   per-day summary statistics.
+- **Oracle validator** ([oracle.cpp](apps/oracle.cpp)): seeds from LOBSTER's
+  first published snapshot, replays the message file, and compares the
+  reconstructed top-N to LOBSTER's own orderbook file at *every* event. Reports
+  agreement broken down by depth. On the level-50 AAPL sample it reconstructs
+  the **top of book to 99.90%** (exact for the first 54,605 consecutive events);
+  the small residual is the feed's documented sub-depth data loss, not an engine
+  error — see [notes/design.md](notes/design.md).
 - **Known-answer tests** ([test_order_book.cpp](tests/test_order_book.cpp)):
-  the core invariants pinned with doctest (vendored, no network at build time).
+  core invariants pinned with doctest (vendored, no network at build time), plus
+  an `oracle_fixture` regression that requires bit-exact reconstruction on a
+  self-contained feed.
 
 See [notes/design.md](notes/design.md) for data-structure rationale, the exact
 LOBSTER event mapping, and the roadmap (oracle test against LOBSTER's own book
@@ -64,10 +73,20 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Run the replay driver on a LOBSTER message file:
+Fetch a free LOBSTER sample, then run the tools on it:
 
 ```
-build/replay data/lobster/AAPL_2012-06-21_message_10.csv
+python scripts/download_lobster_sample.py --levels 50          # AAPL, 50 levels
+
+# per-event summary statistics for the day
+build/replay data/lobster/AAPL_2012-06-21_34200000_37800000_message_50.csv
+
+# validate reconstruction against LOBSTER's own book: seed 50 levels deep,
+# check the top of book at every event
+build/oracle \
+  data/lobster/AAPL_2012-06-21_34200000_37800000_message_50.csv \
+  data/lobster/AAPL_2012-06-21_34200000_37800000_orderbook_50.csv \
+  50 1
 ```
 
 ## Author

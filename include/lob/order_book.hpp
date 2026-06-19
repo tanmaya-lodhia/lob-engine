@@ -56,6 +56,19 @@ public:
     // LOBSTER type 3: the resting order is deleted in full.
     void cancel(OrderId id);
 
+    // Reduce aggregate quantity at a price level without knowing the specific
+    // order id, consuming from the front of the FIFO (oldest first). This is
+    // the primitive needed to reconcile a *partial-history* feed: events that
+    // touch liquidity resting before our window began carry a price and size
+    // but reference an order id we never saw. It is also how a market-by-price
+    // (aggregated) feed would be applied. Over-reduction is clamped to removal.
+    void reduce_at(Side side, Price price, Quantity qty);
+
+    // True if an order with this id is currently resting. Lets a driver choose
+    // the precise by-id path for in-window orders and the price-level fallback
+    // for pre-existing ones.
+    bool has_order(OrderId id) const { return orders_.contains(id); }
+
     // Queries -----------------------------------------------------------------
 
     // Best (most aggressive) price on a side; returns false if that side is
