@@ -194,6 +194,30 @@ recovery of square-root-like scaling **from a book reconstructed out of a raw
 exchange feed** -- the same measurement an impact study runs, now end to end in
 this engine. `square_root_law.csv` holds the full impact curve for plotting.
 
+## Matching engine
+
+Everything above *replays* already-matched events. `MatchingEngine`
+([matching_engine.hpp](../include/lob/matching_engine.hpp)) is the complement: it
+*decides* the matches. An incoming order crosses the book by price-time priority
+-- best price first, and oldest order first within a price -- producing fills at
+the resting (maker) price.
+
+It **composes `OrderBook`** rather than reinventing storage, so it inherits that
+book's fuzz-tested add / reduce / cancel and adds only the crossing loop. Two
+small read accessors were added to `OrderBook` for it: `front_at` (the FIFO head
+of a level) and `volume_within` (marketable volume up to a price, for the
+fill-or-kill pre-check).
+
+Supported: limit and market orders; time-in-force GTC (residual rests), IOC
+(residual discarded) and FOK (all-or-nothing, checked before any fill). Fills
+carry maker, taker, price and quantity. Behaviour is pinned by
+`tests/test_matching_engine.cpp` (crossing, multi-level sweeps, time priority,
+each TIF, market exhaustion, quantity conservation); `apps/match_demo` shows a
+scripted run.
+
+This stays a separate module: the reconstruction path never crosses the book, so
+its exact-replay validation is unaffected by the existence of a matching path.
+
 ## Roadmap
 
 1. **[done]** Reconstruction core + hand-written known-answer unit tests.
@@ -204,4 +228,4 @@ this engine. `square_root_law.csv` holds the full impact curve for plotting.
 4. **[done]** Microstructure measurements off the reconstructed book (below).
 5. **[done]** Metaorder construction (Maitrier-Loeper-Bouchaud) and the
    square-root law (below).
-6. Optional: matching-engine mode with price-time priority.
+6. **[done]** Matching-engine mode with price-time priority (below).

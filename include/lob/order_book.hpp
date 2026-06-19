@@ -90,6 +90,18 @@ public:
     // LOBSTER's own published book snapshots).
     std::vector<PriceLevel> top_levels(Side side, int n) const;
 
+    // Matching support (used by MatchingEngine, which composes this book) ------
+
+    // The oldest resting order at a price level -- the FIFO front, i.e. the one
+    // with highest time priority that a marketable order fills first. Returns
+    // false if no level exists at that price.
+    bool front_at(Side side, Price price, OrderId& id, Quantity& qty) const;
+
+    // Total resting volume on `side` at prices at least as aggressive as
+    // `worst` (asks with price <= worst; bids with price >= worst). Used to
+    // pre-check a fill-or-kill order before any matching.
+    Quantity volume_within(Side side, Price worst) const;
+
 private:
     // std::map keeps prices sorted: asks ascending (best = begin), bids
     // ascending too (best = highest = rbegin). Element addresses in

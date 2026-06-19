@@ -58,6 +58,11 @@ layout matters and a per-event interpreted loop does not keep up.
   [notes/design.md](notes/design.md)). The [benchmark](bench/bench_replay.cpp)
   checksums both engines' best quotes event-for-event, so the speedup ships with
   a correctness proof against the baseline.
+- **Matching engine** ([matching_engine.hpp](include/lob/matching_engine.hpp)):
+  the complement to reconstruction — it *decides* matches by price-time priority
+  rather than replaying them. Limit and market orders, GTC/IOC/FOK time-in-force,
+  fills at the maker price. Composes the (fuzz-tested) `OrderBook` for storage;
+  [match_demo](apps/match_demo.cpp) shows a scripted run.
 - **Tests** ([test_order_book.cpp](tests/test_order_book.cpp),
   [test_flat_book.cpp](tests/test_flat_book.cpp)): core invariants pinned with
   doctest (vendored, no network at build time); a 50k-step **differential fuzz**
@@ -69,16 +74,18 @@ See [notes/design.md](notes/design.md) for data-structure rationale, the exact
 LOBSTER event mapping, and the roadmap (oracle test against LOBSTER's own book
 file, flat-array optimization with benchmarks, microstructure measurements).
 
-This is a **reconstruction** engine, not a matching engine: events are already
-matched by the exchange, so the book is never crossed here. A matching mode is a
-planned, separately tested module.
+The core is a **reconstruction** engine: events are already matched by the
+exchange, so the reconstruction path never crosses the book. A separate
+[`MatchingEngine`](include/lob/matching_engine.hpp) module provides price-time
+priority *matching* on top of the same storage, kept distinct so the
+reconstruction's exact-replay validation is unaffected.
 
 ## Structure
 
 ```
-include/lob/   public headers: types, order book, flat book, tape, microstructure
-src/           order-book, flat-book and tape implementations
-apps/          replay, oracle, microstructure, square_root_law drivers
+include/lob/   public headers: order book, flat book, matching engine, tape, microstructure
+src/           order-book, flat-book, matching-engine and tape implementations
+apps/          replay, oracle, microstructure, square_root_law, match_demo drivers
 bench/         engine microbenchmark (std::map vs flat array)
 tests/         doctest unit tests + differential fuzz + oracle fixture
 third_party/   vendored doctest single header

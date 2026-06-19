@@ -118,6 +118,32 @@ bool OrderBook::best_ask(Price& out) const {
     return true;
 }
 
+bool OrderBook::front_at(Side side, Price price, OrderId& id, Quantity& qty) const {
+    const auto& book = side_map(side);
+    auto        it   = book.find(price);
+    if (it == book.end() || it->second.head == nullptr)
+        return false;
+    const Order* h = it->second.head;
+    id             = h->id;
+    qty            = h->qty;
+    return true;
+}
+
+Quantity OrderBook::volume_within(Side side, Price worst) const {
+    const auto& book = side_map(side);
+    Quantity    sum  = 0;
+    if (side == Side::Sell) {
+        // asks ascending: take levels with price <= worst
+        for (auto it = book.begin(); it != book.end() && it->first <= worst; ++it)
+            sum += it->second.total_qty;
+    } else {
+        // bids descending from the top: take levels with price >= worst
+        for (auto it = book.rbegin(); it != book.rend() && it->first >= worst; ++it)
+            sum += it->second.total_qty;
+    }
+    return sum;
+}
+
 Quantity OrderBook::qty_at(Side side, Price price) const {
     const auto& book = side_map(side);
     auto        it   = book.find(price);
