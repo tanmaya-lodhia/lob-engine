@@ -1,103 +1,44 @@
 # LOB Engine
 
-A from-scratch, full-depth **limit-order-book reconstruction engine** in modern
-C++ (C++23). It ingests an exchange's message-by-message event stream and
-rebuilds the complete book after every event, fast enough to replay full trading
-days that are impractical to process in Python.
+A limit order book reconstruction engine in C++23. It reads an exchange's raw message stream — every add, cancel and execution — and rebuilds the full book after each event. The reason to do this in C++ is volume: a single stock can throw off tens to hundreds of millions of events in a day, and you touch the price-level structure on every one. That's the kind of loop where a scripting language falls over and where controlling the memory layout actually buys you something.
 
-The first data target is [LOBSTER](https://lobsterdata.com) NASDAQ message data,
-chosen because it ships a reference book snapshot after every message — so
-reconstruction can be validated *exactly* against an external oracle, not just
-hand-written tests.
+The data is [LOBSTER](https://lobsterdata.com) NASDAQ samples. I picked it because it ships the true book state after every message, so the reconstruction can be checked against an external source instead of just my own tests.
 
-## Why C++
+## What's in here
 
-A single equity name can generate tens to hundreds of millions of book events in
-one session. Reconstruction means an add / cancel / execute against a price-level
-structure *per event*, and depth queries on top. The hot path is dominated by
-data-structure access and allocation — exactly where manual control over memory
-layout matters and a per-event interpreted loop does not keep up.
+The core is the order book (`order_book.hpp`): integer-tick prices, a FIFO queue per price level threaded as an intrusive linked list so any order cancels in O(1), and an order-id map for lookups. It keeps strict price-time priority, which is the one thing the whole exercise has to get right.
 
-## What it does
+A few tools sit on top of that core:
 
-- **Order-book core** ([order_book.hpp](include/lob/order_book.hpp),
-  [order_book.cpp](src/order_book.cpp)): integer-tick prices, one FIFO queue per
-  price level threaded as an intrusive linked list (O(1) cancel of any order),
-  and an order-id index for O(1) lookup. Best bid/ask, depth-at-price, and
-  top-N snapshots. Preserves price-time priority — the invariant the whole
-  engine exists to protect.
-- **Replay driver** ([replay.cpp](apps/replay.cpp)): maps the LOBSTER event
-  encoding (new / cancel / delete / execute / hidden) onto the engine and emits
-  per-day summary statistics.
-- **Oracle validator** ([oracle.cpp](apps/oracle.cpp)): seeds from LOBSTER's
-  first published snapshot, replays the message file, and compares the
-  reconstructed top-N to LOBSTER's own orderbook file at *every* event. Reports
-  agreement broken down by depth. On the level-50 AAPL sample it reconstructs
-  the **top of book to 99.90%** (exact for the first 54,605 consecutive events);
-  the small residual is the feed's documented sub-depth data loss, not an engine
-  error — see [notes/design.md](notes/design.md).
-- **Microstructure analytics** ([microstructure.cpp](apps/microstructure.cpp),
-  [microstructure.hpp](include/lob/microstructure.hpp)): measures the canonical
-  empirical observables off the reconstructed book — time-weighted spread and
-  depth, the trade-sign autocorrelation (long memory of order flow), the
-  response function R(ℓ) (market impact in trade time), and single-trade impact
-  by size. On the level-50 AAPL hour it recovers the textbook stylized facts
-  (C(1)=0.58 decaying to ~0; concave, saturating R(ℓ)); see
-  [notes/design.md](notes/design.md). Writes CSVs for plotting.
-- **Square-root law of market impact**
-  ([square_root_law.cpp](apps/square_root_law.cpp)): reproduces the square-root
-  impact law on the reconstructed book via the Maitrier–Loeper–Bouchaud
-  metaorder construction ([arXiv:2503.18199](https://arxiv.org/abs/2503.18199))
-  — random trader mapping over the public tape, then impact vs metaorder volume.
-  On the level-50 AAPL hour it recovers strongly concave impact: over the
-  scaling regime `I/σ_D ∝ (Q/V_D)^0.62`, R²=0.97, consistent with the √ law.
-- **Flat-array engine** ([flat_book.hpp](include/lob/flat_book.hpp)): a
-  cache-friendly book that replaces the `std::map` price levels with per-side
-  flat arrays indexed by tick offset and the map nodes with a pooled free list.
-  Same semantics, **~1.5x faster** on the real stream (see
-  [notes/design.md](notes/design.md)). The [benchmark](bench/bench_replay.cpp)
-  checksums both engines' best quotes event-for-event, so the speedup ships with
-  a correctness proof against the baseline.
-- **Matching engine** ([matching_engine.hpp](include/lob/matching_engine.hpp)):
-  the complement to reconstruction — it *decides* matches by price-time priority
-  rather than replaying them. Limit and market orders, GTC/IOC/FOK time-in-force,
-  fills at the maker price. Composes the (fuzz-tested) `OrderBook` for storage;
-  [match_demo](apps/match_demo.cpp) shows a scripted run.
-- **Tests** ([test_order_book.cpp](tests/test_order_book.cpp),
-  [test_flat_book.cpp](tests/test_flat_book.cpp)): core invariants pinned with
-  doctest (vendored, no network at build time); a 50k-step **differential fuzz**
-  asserting `FlatBook` matches `OrderBook` step-for-step (including crossed
-  books); and an `oracle_fixture` regression requiring bit-exact reconstruction
-  on a self-contained feed.
+- **replay** runs a message file through the book and prints per-day stats.
+- **oracle** is the real validation. It seeds the book from LOBSTER's first snapshot, replays the messages, and compares the result to LOBSTER's own book at every single event. On the level-50 AAPL sample the top of book matches 99.9% of the time, and is exact for the first 54,605 events in a row. The rest isn't a bug — a level-N feed doesn't report what happens below level N, so deep liquidity occasionally disappears with no message to tell you. The design notes walk through a specific case where this happens.
+- **microstructure** measures the standard empirical facts off the rebuilt book: time-weighted spread and depth, the trade-sign autocorrelation, and the impact response function R(ℓ). The AAPL hour reproduces the textbook results — sign autocorrelation around 0.58 decaying to zero, and a concave response curve that saturates.
+- **square_root_law** reproduces the square-root law of market impact using the Maitrier-Loeper-Bouchaud construction ([arXiv:2503.18199](https://arxiv.org/abs/2503.18199)): randomly assign trades to synthetic traders, treat each same-sign run as a metaorder, and plot impact against volume. Over the scaling region the fit is I/σ_D proportional to (Q/V_D)^0.62 with R² of 0.97. That's concave and clearly sub-linear, in line with the square-root law. The exponent isn't exactly 0.5 because this is one hour of data rather than the years the original paper used, but the shape is unambiguous.
 
-See [notes/design.md](notes/design.md) for data-structure rationale, the exact
-LOBSTER event mapping, and the roadmap (oracle test against LOBSTER's own book
-file, flat-array optimization with benchmarks, microstructure measurements).
+Two more pieces sit alongside the reconstruction path:
 
-The core is a **reconstruction** engine: events are already matched by the
-exchange, so the reconstruction path never crosses the book. A separate
-[`MatchingEngine`](include/lob/matching_engine.hpp) module provides price-time
-priority *matching* on top of the same storage, kept distinct so the
-reconstruction's exact-replay validation is unaffected.
+- **flat_book** is the same book with the `std::map` levels swapped for flat per-side arrays and the map nodes for a pooled free list. It runs about 1.5x faster on the real stream. The benchmark checksums both books' quotes on every event, so it confirms they agree before reporting the speedup. Building it I hit a good bug: one shared price array can't represent a book that transiently crosses, and the checksum caught it.
+- **matching engine** is the opposite of reconstruction. Instead of replaying matches it makes them, crossing incoming orders by price-time priority — limit and market orders, with GTC, IOC and FOK. It reuses the order book for storage so it leans on the same tested code.
+
+Tests are doctest: invariants on both books, a 50k-step fuzz test that pushes random order flow through the flat book and the `std::map` book and checks they never disagree (including crossed books), and a fixture that demands a bit-exact reconstruction on a clean feed.
+
+There's more detail in `notes/design.md` — the data-structure choices, the exact LOBSTER event mapping, the depth limitation above, and the full results.
 
 ## Structure
 
 ```
-include/lob/   public headers: order book, flat book, matching engine, tape, microstructure
-src/           order-book, flat-book, matching-engine and tape implementations
-apps/          replay, oracle, microstructure, square_root_law, match_demo drivers
-bench/         engine microbenchmark (std::map vs flat array)
-tests/         doctest unit tests + differential fuzz + oracle fixture
-third_party/   vendored doctest single header
-scripts/       data fetch helper
-notes/         design notes, results and roadmap
-data/lobster/  sample data (gitignored; not committed)
+include/lob/   headers: order book, flat book, matching engine, tape, microstructure
+src/           implementations
+apps/          replay, oracle, microstructure, square_root_law, match_demo
+bench/         std::map vs flat-array benchmark
+tests/         doctest unit tests, fuzz test, oracle fixture
+notes/         design notes and results
+data/lobster/  samples (gitignored)
 ```
 
 ## Building
 
-Requires a C++23 compiler, CMake >= 3.24, and Ninja. Verified with GCC 16
-(MinGW-w64 UCRT) on Windows.
+Needs a C++23 compiler, CMake 3.24+ and Ninja. Built with GCC 16 (MinGW-w64 UCRT) on Windows.
 
 ```
 cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=g++
@@ -105,25 +46,24 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Fetch a free LOBSTER sample, then run the tools on it:
+Grab a free LOBSTER sample and run the tools on it:
 
 ```
-python scripts/download_lobster_sample.py --levels 50          # AAPL, 50 levels
+python scripts/download_lobster_sample.py --levels 50
 
-# per-event summary statistics for the day
+# per-day summary stats
 build/replay data/lobster/AAPL_2012-06-21_34200000_37800000_message_50.csv
 
-# validate reconstruction against LOBSTER's own book: seed 50 levels deep,
-# check the top of book at every event
+# validate against LOBSTER's own book: seed 50 levels deep, check the top of book
 build/oracle \
   data/lobster/AAPL_2012-06-21_34200000_37800000_message_50.csv \
   data/lobster/AAPL_2012-06-21_34200000_37800000_orderbook_50.csv \
   50 1
 
-# benchmark the flat engine vs the std::map baseline (best of 9)
+# benchmark the flat book against the std::map baseline (best of 9)
 build/bench data/lobster/AAPL_2012-06-21_34200000_57600000_message_10.csv 9
 
-# microstructure analytics (seed 50 levels, lags 1..100, CSVs to ./out)
+# microstructure stats, lags 1..100, CSVs into ./out
 build/microstructure \
   data/lobster/AAPL_2012-06-21_34200000_37800000_message_50.csv \
   data/lobster/AAPL_2012-06-21_34200000_37800000_orderbook_50.csv \
