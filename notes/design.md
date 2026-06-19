@@ -89,14 +89,53 @@ fallback handles events on pre-seed liquidity.
   events before sub-depth loss reaches the inside — the same effect, with far
   less depth to buffer it. This is why deeper seeding matters.
 
+## FlatBook: the optimized engine
+
+`FlatBook` keeps the same semantics as `OrderBook` but swaps the two data
+structures that dominate the hot path:
+
+- **Price levels:** `std::map<Price, Level>` per side -> a flat `std::vector`
+  per side indexed by tick offset from a fixed base. O(1) price access and no
+  red-black-tree pointer chasing. The inside is tracked incrementally; when it
+  empties, a short scan finds the next occupied level.
+- **Order nodes:** map nodes -> a pooled `std::vector<Node>` with a free list and
+  index links, so steady-state add/cancel does no heap allocation.
+
+**Bids and asks need separate price arrays.** A single shared array breaks the
+instant the book transiently crosses (an ask at or below a bid, which real raw
+event streams produce): one `Level` per price cannot hold both sides, so the
+best-ask scan can land on a bid level. This was caught by the differential test;
+the fix is per-side arrays.
+
+### Benchmark (`bench`, apply loop only, I/O excluded, best of 9)
+
+AAPL 2012-06-21, GCC 16 `-O3`, replaying the real message stream:
+
+| dataset | events | price band | `std::map` | `FlatBook` | speedup |
+|---|---|---|---|---|---|
+| level-10 full day | 400,391 | 109,401 ticks | 4.5 M/s | 6.8 M/s | **1.50x** |
+| level-50 one hour | 91,997 | 2,219,501 ticks | 3.9 M/s | 4.6 M/s | 1.18x |
+
+Both engines' best quotes are checksummed event-for-event and **match exactly**,
+so the speedup comes with a correctness proof against the validated baseline.
+
+Two honest caveats this exposes:
+
+- The remaining shared cost is the `OrderId`-to-node hash map, hit on every
+  reduce/cancel by *both* engines; it compresses the achievable ratio. Beating
+  it needs a different id-lookup scheme, a separate axis of work.
+- A fixed flat array degrades when the price band is wide (the level-50 sample
+  has deep far-from-mid limit orders spanning ~2.2M ticks): mostly-empty memory
+  and longer inside-scan gaps erode the win. A windowed / recentering array is
+  the natural fix and a candidate next step.
+
 ## Roadmap
 
 1. **[done]** Reconstruction core + hand-written known-answer unit tests.
 2. **[done]** LOBSTER loader + oracle test (this section), with `reduce_at` and
    deep-seed / shallow-validate support.
-3. Flat-array book + object pool; microbenchmark events/sec vs the `std::map`
-   baseline. (Oracle throughput is currently bounded by CSV parsing, not the
-   book; a dedicated benchmark will isolate the engine.)
+3. **[done]** Flat-array book ([flat_book.hpp](../include/lob/flat_book.hpp)) +
+   object pool; benchmark vs the `std::map` baseline (below).
 4. Microstructure measurements off the reconstructed book: realized spread,
    depth, queue dynamics, and the square-root impact law on real metaorders
    (ties into the impact-diffusivity work).

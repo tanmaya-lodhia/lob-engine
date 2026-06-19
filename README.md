@@ -36,10 +36,19 @@ layout matters and a per-event interpreted loop does not keep up.
   the **top of book to 99.90%** (exact for the first 54,605 consecutive events);
   the small residual is the feed's documented sub-depth data loss, not an engine
   error — see [notes/design.md](notes/design.md).
-- **Known-answer tests** ([test_order_book.cpp](tests/test_order_book.cpp)):
-  core invariants pinned with doctest (vendored, no network at build time), plus
-  an `oracle_fixture` regression that requires bit-exact reconstruction on a
-  self-contained feed.
+- **Flat-array engine** ([flat_book.hpp](include/lob/flat_book.hpp)): a
+  cache-friendly book that replaces the `std::map` price levels with per-side
+  flat arrays indexed by tick offset and the map nodes with a pooled free list.
+  Same semantics, **~1.5x faster** on the real stream (see
+  [notes/design.md](notes/design.md)). The [benchmark](bench/bench_replay.cpp)
+  checksums both engines' best quotes event-for-event, so the speedup ships with
+  a correctness proof against the baseline.
+- **Tests** ([test_order_book.cpp](tests/test_order_book.cpp),
+  [test_flat_book.cpp](tests/test_flat_book.cpp)): core invariants pinned with
+  doctest (vendored, no network at build time); a 50k-step **differential fuzz**
+  asserting `FlatBook` matches `OrderBook` step-for-step (including crossed
+  books); and an `oracle_fixture` regression requiring bit-exact reconstruction
+  on a self-contained feed.
 
 See [notes/design.md](notes/design.md) for data-structure rationale, the exact
 LOBSTER event mapping, and the roadmap (oracle test against LOBSTER's own book
@@ -87,6 +96,9 @@ build/oracle \
   data/lobster/AAPL_2012-06-21_34200000_37800000_message_50.csv \
   data/lobster/AAPL_2012-06-21_34200000_37800000_orderbook_50.csv \
   50 1
+
+# benchmark the flat engine vs the std::map baseline (best of 9)
+build/bench data/lobster/AAPL_2012-06-21_34200000_57600000_message_10.csv 9
 ```
 
 ## Author
