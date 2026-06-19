@@ -36,6 +36,14 @@ layout matters and a per-event interpreted loop does not keep up.
   the **top of book to 99.90%** (exact for the first 54,605 consecutive events);
   the small residual is the feed's documented sub-depth data loss, not an engine
   error — see [notes/design.md](notes/design.md).
+- **Microstructure analytics** ([microstructure.cpp](apps/microstructure.cpp),
+  [microstructure.hpp](include/lob/microstructure.hpp)): measures the canonical
+  empirical observables off the reconstructed book — time-weighted spread and
+  depth, the trade-sign autocorrelation (long memory of order flow), the
+  response function R(ℓ) (market impact in trade time), and single-trade impact
+  by size. On the level-50 AAPL hour it recovers the textbook stylized facts
+  (C(1)=0.58 decaying to ~0; concave, saturating R(ℓ)); see
+  [notes/design.md](notes/design.md). Writes CSVs for plotting.
 - **Flat-array engine** ([flat_book.hpp](include/lob/flat_book.hpp)): a
   cache-friendly book that replaces the `std::map` price levels with per-side
   flat arrays indexed by tick offset and the map nodes with a pooled free list.
@@ -99,6 +107,12 @@ build/oracle \
 
 # benchmark the flat engine vs the std::map baseline (best of 9)
 build/bench data/lobster/AAPL_2012-06-21_34200000_57600000_message_10.csv 9
+
+# microstructure analytics (seed 50 levels, lags 1..100, CSVs to ./out)
+build/microstructure \
+  data/lobster/AAPL_2012-06-21_34200000_37800000_message_50.csv \
+  data/lobster/AAPL_2012-06-21_34200000_37800000_orderbook_50.csv \
+  50 100 out
 ```
 
 ## Author

@@ -129,6 +129,32 @@ Two honest caveats this exposes:
   and longer inside-scan gaps erode the win. A windowed / recentering array is
   the natural fix and a candidate next step.
 
+## Microstructure analytics
+
+`apps/microstructure.cpp` seeds deep from the first snapshot, replays the feed,
+and measures the canonical empirical observables; the estimator math lives in the
+header-only [microstructure.hpp](../include/lob/microstructure.hpp) and is unit
+tested against hand-computed answers. Trade sign follows eps = -Direction;
+same-timestamp same-sign executions are aggregated into one trade.
+
+On the AAPL 2012-06-21 level-50 hour (91,996 events, 6,268 executions -> 4,575
+trades) it recovers the textbook stylized facts:
+
+- **Long-memory order flow.** Trade-sign autocorrelation C(1) = 0.58 decaying to
+  ~0.10 by lag 10 and ~0 by lag 50 -- the slow, persistent sign correlation.
+- **Concave, saturating impact.** Response R(1) = 197 ticks rising to R(10) = 541
+  and flattening by R(50), the canonical shape.
+- **Effective < quoted spread.** 2.1 bps effective vs 3.3 bps time-weighted
+  quoted -- trades occur inside the quotes, as they must.
+- **Single-trade impact is weakly size-dependent** (~150-280 ticks across three
+  decades of trade size), consistent with the literature: the square-root law is
+  a *metaorder*-level effect, not a single-trade one. That is milestone 5.
+
+Outputs `response_function.csv`, `sign_autocorrelation.csv`, `impact_by_size.csv`
+for plotting. The time-weighted quoted spread is sensitive to the ~0.1% of
+snapshots that reconstruction gets wrong (a stale wide level over a quiet
+interval is heavily time-weighted); the trade-based effective spread is robust.
+
 ## Roadmap
 
 1. **[done]** Reconstruction core + hand-written known-answer unit tests.
@@ -136,7 +162,7 @@ Two honest caveats this exposes:
    deep-seed / shallow-validate support.
 3. **[done]** Flat-array book ([flat_book.hpp](../include/lob/flat_book.hpp)) +
    object pool; benchmark vs the `std::map` baseline (below).
-4. Microstructure measurements off the reconstructed book: realized spread,
-   depth, queue dynamics, and the square-root impact law on real metaorders
-   (ties into the impact-diffusivity work).
-5. Optional: matching-engine mode with price-time priority.
+4. **[done]** Microstructure measurements off the reconstructed book (below).
+5. Metaorder construction (Maitrier-Loeper-Bouchaud) and the square-root impact
+   law -- the direct bridge to the impact-diffusivity work.
+6. Optional: matching-engine mode with price-time priority.

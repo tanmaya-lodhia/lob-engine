@@ -36,6 +36,10 @@ target_link_libraries(oracle PRIVATE lob)
 add_executable(bench bench/bench_replay.cpp)
 target_link_libraries(bench PRIVATE lob)
 
+# --- microstructure analytics ------------------------------------------------
+add_executable(microstructure apps/microstructure.cpp)
+target_link_libraries(microstructure PRIVATE lob)
+
 # --- tests -------------------------------------------------------------------
 # doctest is vendored as a single header (third_party/) so the build is fully
 # reproducible and needs no network access at configure time.
@@ -43,7 +47,8 @@ add_library(doctest INTERFACE)
 target_include_directories(doctest INTERFACE third_party/doctest)
 
 enable_testing()
-add_executable(unit_tests tests/test_order_book.cpp tests/test_flat_book.cpp)
+add_executable(unit_tests tests/test_order_book.cpp tests/test_flat_book.cpp
+                          tests/test_microstructure.cpp)
 target_link_libraries(unit_tests PRIVATE lob doctest)
 add_test(NAME unit_tests COMMAND unit_tests)
 
