@@ -1,0 +1,18 @@
+# build output
+build/
+out/
+*.exe
+*.o
+*.obj
+
+# data (fetched, not committed)
+data/lobster/*
+!data/lobster/.gitkeep
+
+# editor / OS
+.vs/
+.vscode/
+.idea/
+*.user
+Thumbs.db
+.DS_Store

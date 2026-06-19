@@ -1,0 +1,5 @@
+# Normalize line endings: store LF in the repo, check out native on Windows.
+* text=auto
+
+# Treat the vendored single-header library as a binary-ish blob for diffs.
+third_party/** linguist-vendored
